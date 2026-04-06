@@ -1,0 +1,87 @@
+PROMPTS
+Proyecto Final — Automatización con IA — Coderhouse
+
+
+NODO 1: Chain Clasificador (LLM de clasificación)
+Modelo: gpt-4o-mini | Temperature: 0
+
+[PROMPT PARA SISTEMA]
+Sos un clasificador de sentimientos y temas para tweets de una empresa.
+Respondé SOLAMENTE con un JSON válido, exactamente así:
+{"sentiment":"NEGATIVO","topic":"atencion_al_cliente"}
+Valores posibles para sentiment: NEGATIVO, POSITIVO, NEUTRAL.
+Valores posibles para topic: atencion_al_cliente, calidad_producto, precio,
+entrega, app_o_web, otro.
+
+[PROMPT PARA USER]
+Clasificá este tweet:
+
+={{ $json.tweet }}
+
+[NOTAS]
+- Temperature 0 para máxima consistencia y determinismo en la clasificación.
+- El prompt fuerza un formato JSON estricto para facilitar el parsing en el
+  nodo siguiente.
+- Se enumera explícitamente cada valor posible para evitar respuestas
+  fuera del esquema.
+- El nodo "Extraer Sentimiento" tiene un fallback por regex en caso de que el LLM devuelva el sentimiento como texto plano en lugar de JSON.
+
+
+
+
+NODO 2: Chain Explicador (LLM de análisis)
+Modelo: gpt-4o-mini | Temperature: 0.3
+
+[PROMPT PARA SISTEMA]
+Sos un analista de reputación de marca. Estás recibiendo un tweet negativo.
+Respondé SOLAMENTE con un JSON valido, este es el formato exacto:
+{"summary":"resumen en 1-2 oraciones","reasons":["razon 1","razon 2"]}
+El summary resume el tweet. El array reasons lista entre 2 y 4 causas concretas del sentimiento negativo.
+
+[PROMPT PARA USER]
+Analizá este tweet negativo:
+
+={{ $json.tweet }}
+
+[NOTAS]
+- Solo se ejecuta cuando el sentimiento clasificado es NEGATIVO.
+- Temperature 0.3 permite cierta variación en el lenguaje sin perder precisión.
+- El campo "reasons" se usa para poblar la lista HTML del email de notificación.
+- Si el parsing del JSON falla, el nodo "Preparar Datos Negativos" usa los primeros 300 caracteres de la respuesta raw como fallback para el summary.
+
+
+
+
+
+NODO 3: Chain Draft Community (LLM generador de respuesta)
+Modelo: gpt-4o-mini | Temperature: 0.7
+
+[PROMPT PARA SISTEMA]
+Sos un community manager profesional y empático. Redactá UNA respuesta pública breve (máximo 280 caracteres) que sea empática, profesional, no defensiva, y que ofrezca solución o contacto. Respondé SOLAMENTE con
+un JSON válido, con este formato exacto:
+{"draft":"texto de la respuesta aqui"}
+Sin markdown, sin texto adicional.
+
+[PROMPT PARA USER]
+Tweet negativo: ={{ $json.tweet }}
+Resumen: ={{ $json.summary }}
+Tema: ={{ $json.topic }}
+
+Redactá la respuesta sugerida.
+
+[NOTAS]
+- Solo se ejecuta cuando el sentimiento es NEGATIVO (después del Explicador).
+- Temperature 0.7 para generar respuestas más naturales y variadas.
+- El límite de 280 caracteres está alineado con el límite de Twitter/X.
+- El draft se incluye en el email enviado al equipo, pero NO se publica automáticamente (requiere revisión humana antes de responder).
+- Se le provee el resumen y el tema generados por el LLM anterior para dar más contexto y mejorar la calidad de la respuesta sugerida.
+
+
+
+LIMITACIONES IDENTIFICADAS
+
+-El modelo puede clasificar tweets irónicos como algo positivo cuando en realidad no lo es.
+
+-Los tweets en otros idiomas o con mucha jerga pueden producir clasificaciones menos precisas.
+
+-Los tweets muy largos o con caracteres especiales pueden afectar la clasificación y el análisis.

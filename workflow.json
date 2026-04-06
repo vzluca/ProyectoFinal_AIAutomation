@@ -1,0 +1,603 @@
+{
+  "name": "Proyecto Final - Coderhouse",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=0"
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "id": "cea208e3-8d01-4c06-bb9a-2e260fc8ea87",
+      "name": "Trigger",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        3536,
+        3104
+      ],
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "AweUGzaBbaMiycPG",
+          "name": "Google Sheets Trigger account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=[PROMPT PARA SISTEMA]\nSos un clasificador de sentimientos y temas para tweets de una empresa.\nRespondé SOLAMENTE con un JSON válido, exactamente así:\n{\"sentiment\":\"NEGATIVO\",\"topic\":\"atencion_al_cliente\"}\nValores posibles para sentiment: NEGATIVO, POSITIVO, NEUTRAL.\nValores posibles para topic: atencion_al_cliente, calidad_producto, precio,\nentrega, app_o_web, otro.\n\n[PROMPT PARA USER]\nClasifica este tweet:\n\n={{ $json.tweet }}\n\n[NOTAS]\n- Temperature 0 para máxima consistencia y determinismo en la clasificación.\n- El prompt fuerza un formato JSON estricto para facilitar el parsing en el\n  nodo siguiente.\n- Se enumera explícitamente cada valor posible para evitar respuestas\n  fuera del esquema.\n- El nodo \"Extraer Sentimiento\" tiene un fallback por regex en caso de que el LLM devuelva el sentimiento como texto plano en lugar de JSON.\n"
+      },
+      "id": "4cea8431-5d20-40c1-996b-51eee97a552d",
+      "name": "Chain Clasificador",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        3920,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "375fc801-d075-4dbc-b46b-b3de9d8c9cad",
+      "name": "OpenAI Clasificador",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        3920,
+        3264
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OkpG4OxM4MacheE2",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=[PROMPT PARA SISTEMA]\nSos un analista de reputación de marca. Estás recibiendo un tweet negativo.\nRespondé SOLAMENTE con un JSON valido, este es el formato exacto:\n{\"summary\":\"resumen en 1-2 oraciones\",\"reasons\":[\"razon 1\",\"razon 2\"]}\nEl summary resume el tweet. El array reasons lista entre 2 y 4 causas concretas del sentimiento negativo.\n\n[PROMPT PARA USER]\nAnalizá este tweet negativo:\n\n={{ $json.tweet }}\n\n[NOTAS]\n- Solo se ejecuta cuando el sentimiento clasificado es NEGATIVO.\n- Temperature 0.3 permite cierta variación en el lenguaje sin perder precisión.\n- El campo \"reasons\" se usa para poblar la lista HTML del email de notificación.\n- Si el parsing del JSON falla, el nodo \"Preparar Datos Negativos\" usa los primeros 300 caracteres de la respuesta raw como fallback para el summary.\n"
+      },
+      "id": "3e1e9d31-58a7-4158-b379-57e8242fd820",
+      "name": "Chain Explicador",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        4880,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "e490d4ae-7b97-49a3-aba0-f31b9bc115ad",
+      "name": "OpenAI Explicador",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        4880,
+        3264
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OkpG4OxM4MacheE2",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.text || $json.content || $json.response || '';\nconst prev = $('Extraer sentimiento').first().json;\nlet summary = 'No se pudo generar resumen.';\nlet reasons = [];\ntry {\n  const cleaned = raw.trim().replace(/```json|```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  summary = parsed.summary || summary;\n  reasons = Array.isArray(parsed.reasons) ? parsed.reasons : [];\n} catch(e) {\n  summary = raw.substring(0, 300);\n  reasons = ['No se pudieron extraer razones estructuradas.'];\n}\nconst reasonsHtml = reasons.map(r => `<li>${r}</li>`).join('');\nconst reasonsText = reasons.map((r,i) => `${i+1}. ${r}`).join('\\n');\nreturn [{ json: { ...prev, summary, reasons, reasonsHtml, reasonsText, emailSubject: `Tweet Negativo [${prev.topic}] - ${prev.timestamp.substring(0,10)}` } }];"
+      },
+      "id": "f7d02ee1-11b2-4a11-891d-e9fcf08a5339",
+      "name": "Preparar Datos Negativos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5200,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=[PROMPT PARA SISTEMA]\nSos un community manager profesional y empático. Redactá UNA respuesta pública breve (máximo 280 caracteres) que sea empática, profesional, no defensiva, y que ofrezca solución o contacto. Respondé SOLAMENTE con\nun JSON válido, con este formato exacto:\n{\"draft\":\"texto de la respuesta aqui\"}\nSin markdown, sin texto adicional.\n\n[PROMPT PARA USER]\nTweet negativo: ={{ $json.tweet }}\nResumen: ={{ $json.summary }}\nTema: ={{ $json.topic }}\n\nRedactá la respuesta sugerida.\n\n[NOTAS]\n- Solo se ejecuta cuando el sentimiento es NEGATIVO (después del Explicador).\n- Temperature 0.7 para generar respuestas más naturales y variadas.\n- El límite de 280 caracteres está alineado con el límite de Twitter/X.\n- El draft se incluye en el email enviado al equipo, pero NO se publica automáticamente (requiere revisión humana antes de responder).\n- Se le provee el resumen y el tema generados por el LLM anterior para dar más contexto y mejorar la calidad de la respuesta sugerida."
+      },
+      "id": "c049a7d8-dc6a-4867-a2d4-dfd407ec7547",
+      "name": "Chain Draft Community",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        5408,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "11127846-cb9f-4c16-937e-b253e0d97967",
+      "name": "OpenAI Draft",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        5408,
+        3264
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OkpG4OxM4MacheE2",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.text || $json.content || $json.response || '';\nconst prev = $('Preparar Datos Negativos').first().json;\nlet draft = 'No se pudo generar respuesta sugerida.';\ntry {\n  const cleaned = raw.trim().replace(/```json|```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  draft = parsed.draft || draft;\n} catch(e) {\n  draft = raw.substring(0, 280);\n}\nreturn [{ json: { ...prev, draft } }];"
+      },
+      "id": "eec17bc5-27aa-42f7-b261-124c19364291",
+      "name": "Extraer Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5728,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_EMAIL@gmail.com",
+        "subject": "={{ $json.emailSubject }}",
+        "message": "<h2 style=\"color:#c0392b;\">Tweet Negativo Detectado</h2><p><strong>Fecha:</strong> {{ $json.timestamp }}</p><p><strong>Tema:</strong> {{ $json.topic }}</p><hr/><h3>Tweet Original</h3><blockquote style=\"background:#f9f9f9;border-left:4px solid #c0392b;padding:10px;margin:0;\">{{ $json.tweet }}</blockquote><h3>Resumen</h3><p>{{ $json.summary }}</p><h3>Razones</h3><ul>{{ $json.reasonsHtml }}</ul><hr/><h3 style=\"color:#2980b9;\">Respuesta Sugerida para Community</h3><blockquote style=\"background:#eaf4fb;border-left:4px solid #2980b9;padding:10px;margin:0;\">{{ $json.draft }}</blockquote><hr/><p style=\"color:#888;font-size:11px;\">Generado automaticamente por el sistema de monitoreo.</p>",
+        "options": {}
+      },
+      "id": "1e5ec249-3ca5-46bc-9405-83762dd01388",
+      "name": "Enviar Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        5920,
+        3104
+      ],
+      "webhookId": "dd0f5e5e-fe99-4202-a51c-26bf518d85a0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "G3ubpBXBikmpWzv1",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 421044836,
+          "mode": "list",
+          "cachedResultName": "Métricas ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=421044836"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $('Extraer sentimiento').first().json.timestamp }}",
+            "tweet": "={{ $('Extraer sentimiento').first().json.tweet }}",
+            "sentiment": "={{ $('Extraer sentimiento').first().json.sentiment }}",
+            "topic": "={{ $('Extraer sentimiento').first().json.topic }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tweet",
+              "displayName": "tweet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sentiment",
+              "displayName": "sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "cc90219e-12fe-4d75-8c6c-b84f3e470f12",
+      "name": "Guardar Metricas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        4880,
+        3536
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2V8CwGgOtKP2QBbX",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const tweet = $json.tweet || '';\nconst sentiment = $json.sentiment || '';\nconst topic = $json.topic || 'otro';\nconst timestamp = $json.timestamp || '';\nconsole.log(`[OK] Tweet ${sentiment} / ${topic} a las ${timestamp}`);\nreturn [{ json: { tweet, sentiment, topic, timestamp, status: 'procesado_sin_alerta' } }];"
+      },
+      "id": "f0133b80-8d8f-4f83-a120-0510567e8f8a",
+      "name": "Log Positivo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5088,
+        3536
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tweet = $json.tweet || '';\nif (!tweet) throw new Error('Campo tweet vacio o ausente en la fila.');\nreturn [{ json: { tweet, retry_count: 0, timestamp: new Date().toISOString() } }];"
+      },
+      "id": "e7c7611b-47d5-48ae-860e-72ca8eed29fe",
+      "name": "Inicio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3728,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.text || $json.content || $json.response || '';\nconst tweet = $('Inicio').first().json.tweet || '';\nconst timestamp = $('Inicio').first().json.timestamp || '';\nconst retry_count = $('Inicio').first().json.retry_count || 0;\nlet sentiment = 'UNKNOWN';\nlet topic = 'otro';\ntry {\n  const cleaned = raw.trim().replace(/```json|```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  sentiment = (parsed.sentiment || 'UNKNOWN').toUpperCase().trim();\n  topic = (parsed.topic || 'otro').toLowerCase().trim();\n} catch(e) {\n  const up = raw.toUpperCase();\n  if (up.includes('NEGATIVO')) sentiment = 'NEGATIVO';\n  else if (up.includes('POSITIVO')) sentiment = 'POSITIVO';\n  else if (up.includes('NEUTRAL')) sentiment = 'NEUTRAL';\n}\nconst valid = ['NEGATIVO','POSITIVO','NEUTRAL'];\nconst needs_retry = !valid.includes(sentiment) && retry_count < 3;\nreturn [{ json: { tweet, sentiment, topic, raw_response: raw, timestamp, retry_count, needs_retry } }];"
+      },
+      "id": "0fb4b828-e5f9-470c-9c12-ac11b00d3a43",
+      "name": "Extraer sentimiento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4240,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-retry",
+              "leftValue": "={{ $json.needs_retry }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "261379e0-9a96-48b6-a658-089e4f5550d6",
+      "name": "Necesita reintento",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4432,
+        3104
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconst retry_count = (data.retry_count || 0) + 1;\nconsole.log(`[REINTENTO ${retry_count}/3] Tweet: ${data.tweet.substring(0,60)}`);\nreturn [{ json: { tweet: data.tweet, retry_count, timestamp: data.timestamp } }];"
+      },
+      "id": "68cb10e6-bae8-45fe-b3d9-c5542618348e",
+      "name": "Reintento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4544,
+        2832
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-neg",
+              "leftValue": "={{ $json.sentiment }}",
+              "rightValue": "NEGATIVO",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "82177207-7259-4f6e-a4dc-713946c4cc60",
+      "name": "Es negativo",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        3328
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger": {
+      "main": [
+        [
+          {
+            "node": "Inicio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Clasificador": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Chain Clasificador",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chain Clasificador": {
+      "main": [
+        [
+          {
+            "node": "Extraer sentimiento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Explicador": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Chain Explicador",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chain Explicador": {
+      "main": [
+        [
+          {
+            "node": "Preparar Datos Negativos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Datos Negativos": {
+      "main": [
+        [
+          {
+            "node": "Chain Draft Community",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Draft": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Chain Draft Community",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chain Draft Community": {
+      "main": [
+        [
+          {
+            "node": "Extraer Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Draft": {
+      "main": [
+        [
+          {
+            "node": "Enviar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Email": {
+      "main": [
+        [
+          {
+            "node": "Guardar Metricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Metricas": {
+      "main": [
+        [
+          {
+            "node": "Log Positivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inicio": {
+      "main": [
+        [
+          {
+            "node": "Chain Clasificador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer sentimiento": {
+      "main": [
+        [
+          {
+            "node": "Necesita reintento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Necesita reintento": {
+      "main": [
+        [
+          {
+            "node": "Reintento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Es negativo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reintento": {
+      "main": [
+        [
+          {
+            "node": "Chain Clasificador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es negativo": {
+      "main": [
+        [
+          {
+            "node": "Chain Explicador",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Metricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "ab178b99-1b00-4e20-bb9b-fc164f4a3359",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_INSTANCE_ID"
+  },
+  "id": "rozxDH4AlyLUexEEAFEQo",
+  "tags": []
+}
